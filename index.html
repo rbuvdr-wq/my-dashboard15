@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vadodara Region Sahastraveer Live Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap');
+
+        :root {
+            --bg-light: linear-gradient(135deg, #e0f2fe 0%, #dcfce7 100%);
+            --bg-dark: linear-gradient(135deg, #450a0a 0%, #78350f 100%);
+            --glass-light: rgba(255, 255, 255, 0.6);
+            --glass-dark: rgba(20, 5, 5, 0.8);
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            transition: all 0.5s ease;
+            min-height: 100vh;
+            margin: 0;
+            overflow-x: hidden;
+        }
+
+        .light { background: var(--bg-light); color: #1a1a1a; }
+        .dark { background: var(--bg-dark); color: #ffffff; }
+
+        .glass {
+            backdrop-filter: blur(16px) saturate(180%);
+            -webkit-backdrop-filter: blur(16px) saturate(180%);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 1rem;
+        }
+
+        .dark .glass { background-color: var(--glass-dark); box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.8); }
+        .light .glass { background-color: var(--glass-light); box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.15); }
+
+        .neon-border-dark { box-shadow: 0 0 10px #f87171, inset 0 0 2px #f87171; }
+        .neon-border-light { box-shadow: 0 0 10px #4ade80, inset 0 0 2px #4ade80; }
+
+        .kpi-card { transition: transform 0.3s ease; }
+        .kpi-card:hover { transform: translateY(-5px); }
+
+        .loader { border-top-color: #3498db; animation: spinner 1.5s linear infinite; }
+        @keyframes spinner { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        .desktop-view { max-width: 1400px; margin: auto; }
+        .mobile-view { max-width: 480px; margin: auto; }
+
+        .mobile-view .kpi-card span:first-child { font-size: 8px; line-height: 1; }
+        .mobile-view .kpi-card span:last-child { font-size: 14px; }
+        .mobile-view .kpi-card { padding: 0.5rem; }
+
+        .table-container {
+            max-height: 600px;
+            overflow: auto;
+            position: relative;
+        }
+        table { border-collapse: separate; border-spacing: 0; width: 100%; }
+        thead th {
+            position: sticky;
+            top: 0;
+            z-index: 20;
+            background: rgba(0,0,0,0.9);
+        }
+        .light thead th { background: rgba(255,255,255,0.9); }
+        
+        tfoot td {
+            position: sticky;
+            bottom: 0;
+            z-index: 20;
+            background: rgba(0,0,0,0.95);
+            font-weight: bold;
+        }
+        .light tfoot td { background: rgba(255,255,255,0.95); }
+
+        th:nth-child(1), td:nth-child(1) {
+            position: sticky;
+            left: 0;
+            z-index: 10;
+            background: inherit;
+            min-width: 60px;
+            text-align: center;
+        }
+        th:nth-child(2), td:nth-child(2) {
+            position: sticky;
+            left: 60px;
+            z-index: 10;
+            background: inherit;
+            min-width: 200px;
+        }
+
+        thead th:nth-child(1), thead th:nth-child(2) { z-index: 30; }
+        tfoot td:nth-child(1), tfoot td:nth-child(2) { z-index: 30; }
+
+        tr.expandable { cursor: pointer; }
+        tr.expandable:hover { background: rgba(255,255,255,0.1); }
+        .light tr.expandable:hover { background: rgba(0,0,0,0.05); }
+
+        .child-row-sub { background: rgba(255,255,255,0.03); }
+        .child-row-so { background: rgba(255,255,255,0.06); }
+        .light .child-row-sub { background: rgba(0,0,0,0.02); }
+        .light .child-row-so { background: rgba(0,0,0,0.04); }
+
+        .chevron { transition: transform 0.2s ease; }
+        .expanded .chevron { transform: rotate(90deg); }
+
+        .rank-badge {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: bold;
+        }
+        
+        .clickable-cell:hover {
+            background: rgba(59, 130, 246, 0.2);
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body class="p-4 md:p-8">
+
+    <header class="flex flex-col md:flex-row justify-between items-center mb-8 gap-4">
+        <div>
+            <h1 class="text-2xl md:text-3xl font-bold tracking-tight">Vadodara Region Sahastraveer Live Dashboard</h1>
+            <p class="text-sm opacity-70 flex items-center gap-2">
+                <i class="fa-solid fa-sync-alt"></i> Next refresh in: <span id="countdown" class="font-mono font-bold text-lg">60</span>s
+            </p>
+        </div>
+
+        <div class="flex items-center gap-4 bg-white/10 p-2 rounded-full backdrop-blur-md border border-white/20">
+            <button id="themeToggle" class="p-2 rounded-full hover:bg-white/20 transition">
+                <i id="themeIcon" class="fa-solid fa-moon"></i>
+            </button>
+            <div class="h-6 w-[1px] bg-white/20"></div>
+            <div class="flex items-center gap-2 text-xs font-bold uppercase tracking-wider">
+                <span>Mobile</span>
+                <label class="relative inline-flex items-center cursor-pointer">
+                    <input type="checkbox" id="viewToggle" class="sr-only peer" checked>
+                    <div class="w-11 h-6 bg-gray-600 rounded-full peer peer-checked:after:translate-x-full peer-checked:bg-blue-600 after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all"></div>
+                </label>
+                <span>Desktop</span>
+            </div>
+        </div>
+    </header>
+
+    <main id="mainContainer" class="desktop-view space-y-12">
+        
+        <section id="partA" class="space-y-6">
+            <div class="flex flex-col md:flex-row justify-between items-end gap-4">
+                <h2 class="text-xl font-semibold border-l-4 border-blue-500 pl-4">Part A: BO Level View</h2>
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-3 w-full md:w-auto">
+                    <div>
+                        <label class="text-[10px] uppercase font-bold opacity-60">Division</label>
+                        <select id="filterDiv" class="w-full glass bg-transparent p-2 outline-none border-none text-sm"></select>
+                    </div>
+                    <div>
+                        <label class="text-[10px] uppercase font-bold opacity-60">Subdivision</label>
+                        <select id="filterSub" disabled class="w-full glass bg-transparent p-2 outline-none border-none text-sm opacity-50"></select>
+                    </div>
+                    <div>
+                        <label class="text-[10px] uppercase font-bold opacity-60">SO Name</label>
+                        <select id="filterSO" disabled class="w-full glass bg-transparent p-2 outline-none border-none text-sm opacity-50"></select>
+                    </div>
+                    <div>
+                        <label class="text-[10px] uppercase font-bold opacity-60">BO Name</label>
+                        <select id="filterBO" disabled class="w-full glass bg-transparent p-2 outline-none border-none text-sm opacity-50"></select>
+                    </div>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <div class="space-y-4">
+                    <h3 class="text-sm font-bold uppercase tracking-widest text-green-500"><i class="fa-solid fa-check-double mr-2"></i>Work Done</h3>
+                    <div id="gridWorkDone" class="grid grid-cols-2 sm:grid-cols-3 gap-3 md:gap-4"></div>
+                </div>
+                <div class="space-y-4">
+                    <h3 class="text-sm font-bold uppercase tracking-widest text-red-500"><i class="fa-solid fa-clock-rotate-left mr-2"></i>Work Pending</h3>
+                    <div id="gridWorkPending" class="grid grid-cols-2 sm:grid-cols-3 gap-3 md:gap-4"></div>
+                </div>
+            </div>
+        </section>
+
+        <section id="partB" class="space-y-6">
+            <div class="flex flex-col md:flex-row justify-between items-center gap-4">
+                <div class="flex items-center gap-4">
+                    <h2 class="text-xl font-semibold border-l-4 border-yellow-500 pl-4">Part B: Rankings & Drilldown</h2>
+                    <div class="flex items-center gap-2 glass px-3 py-1 text-[10px] font-bold uppercase tracking-wider">
+                        <span id="labelDiv" class="opacity-100">Division</span>
+                        <label class="relative inline-flex items-center cursor-pointer">
+                            <input type="checkbox" id="tableTypeToggle" class="sr-only peer">
+                            <div class="w-9 h-5 bg-gray-600 rounded-full peer peer-checked:after:translate-x-full peer-checked:bg-yellow-600 after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all"></div>
+                        </label>
+                        <span id="labelSub" class="opacity-40">Subdivision</span>
+                    </div>
+                </div>
+                <div class="flex gap-4">
+                    <button onclick="exportTableToExcel()" class="glass px-4 py-2 text-xs font-bold bg-green-600/20 hover:bg-green-600/40 border border-green-500/30">
+                        <i class="fa-solid fa-file-excel mr-2"></i>Export Full Table
+                    </button>
+                </div>
+            </div>
+
+            <div class="glass table-container">
+                <table id="drilldownTable">
+                    <thead>
+                        <tr class="border-b border-white/10">
+                            <th class="p-4 text-center">Rank</th>
+                            <th class="p-4 text-left">Entity Name</th>
+                            <th class="p-4 text-center">Dormant BO</th>
+                            <th class="p-4 text-center">Oop-Sahastraveer</th>
+                            <th class="p-4 text-center">Potential Sahastraveer</th>
+                            <th class="p-4 text-center">Sahastraveer</th>
+                            <th class="p-4 text-center">Total BO</th>
+                            <th class="p-4 text-center">Net Sahastraveer %</th>
+                            <th class="p-4 text-center">Sahastraveer %</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tableBody">
+                    </tbody>
+                    <tfoot id="tableFooter">
+                    </tfoot>
+                </table>
+            </div>
+        </section>
+    </main>
+
+    <div id="loadingOverlay" class="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
+        <div class="text-center">
+            <div class="loader ease-linear rounded-full border-4 border-t-4 border-gray-200 h-12 w-12 mb-4 mx-auto"></div>
+            <h2 class="text-white text-xl font-semibold">Syncing Sahastraveer Data...</h2>
+        </div>
+    </div>
+
+    <script>
+        const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTR0BS2v9BdTO7UEMqCKnyVaODomy0v6hzPFgOfHb7x6aiPBu4MAp2vWd0TkASlM6ukAb1ePScz3v6s/pub?gid=0&single=true&output=csv';
+        let rawData = [];
+        let timer = 60;
+        let isDarkMode = true;
+        let expandedItems = new Set(); 
+        let isSubdivisionView = false;
+
+        window.onload = () => {
+            fetchData();
+            setInterval(updateTimer, 1000);
+            setupListeners();
+        };
+
+        function updateTimer() {
+            timer--;
+            document.getElementById('countdown').innerText = timer;
+            if (timer <= 0) { fetchData(); timer = 60; }
+        }
+
+        async function fetchData() {
+            try {
+                const response = await fetch(CSV_URL);
+                const text = await response.text();
+                Papa.parse(text, {
+                    header: true,
+                    skipEmptyLines: true,
+                    complete: (results) => {
+                        rawData = results.data;
+                        document.getElementById('loadingOverlay').classList.add('hidden');
+                        initDashboard();
+                    }
+                });
+            } catch (error) {
+                console.error("Data Fetch Error:", error);
+            }
+        }
+
+        // HELPER: Format number in Indian System (e.g. 100000 -> 1,00,000)
+        function formatIndian(num) {
+            if (num === null || num === undefined || isNaN(num)) return num;
+            let parts = num.toString().split('.');
+            let lastThree = parts[0].substring(parts[0].length - 3);
+            let otherNumbers = parts[0].substring(0, parts[0].length - 3);
+            if (otherNumbers !== '') {
+                lastThree = ',' + lastThree;
+            }
+            let res = otherNumbers.replace(/\B(?=(\d{2})+(?!\d))/g, ",") + lastThree;
+            return parts.length > 1 ? res + "." + parts[1] : res;
+        }
+
+        function setupListeners() {
+            document.getElementById('themeToggle').addEventListener('click', () => {
+                isDarkMode = !isDarkMode;
+                document.documentElement.className = isDarkMode ? 'dark' : 'light';
+                document.getElementById('themeIcon').className = isDarkMode ? 'fa-solid fa-sun' : 'fa-solid fa-moon';
+                renderKPIs();
+            });
+
+            document.getElementById('viewToggle').addEventListener('change', (e) => {
+                document.getElementById('mainContainer').className = e.target.checked ? 'desktop-view space-y-12' : 'mobile-view space-y-12';
+                renderKPIs(); 
+            });
+
+            document.getElementById('tableTypeToggle').addEventListener('change', (e) => {
+                isSubdivisionView = e.target.checked;
+                document.getElementById('labelDiv').style.opacity = isSubdivisionView ? '0.4' : '1';
+                document.getElementById('labelSub').style.opacity = isSubdivisionView ? '1' : '0.4';
+                expandedItems.clear();
+                renderTable();
+            });
+
+            const filters = ['filterDiv', 'filterSub', 'filterSO', 'filterBO'];
+            filters.forEach((id, idx) => {
+                document.getElementById(id).addEventListener('change', () => {
+                    updateFilterChain(idx);
+                    renderKPIs();
+                });
+            });
+        }
+
+        function initDashboard() {
+            const divs = [...new Set(rawData.map(d => d.Division_Name))];
+            populateFilter('filterDiv', divs);
+            updateFilterChain(0);
+            renderKPIs();
+            renderTable();
+        }
+
+        function populateFilter(id, items) {
+            const select = document.getElementById(id);
+            const val = select.value;
+            select.innerHTML = `<option value="ALL">All ${id.replace('filter', '')}s</option>`;
+            items.filter(Boolean).sort().forEach(item => {
+                select.innerHTML += `<option value="${item}">${item}</option>`;
+            });
+            if([...items].includes(val)) select.value = val;
+        }
+
+        function updateFilterChain(changedIdx) {
+            const div = document.getElementById('filterDiv').value;
+            const sub = document.getElementById('filterSub');
+            const so = document.getElementById('filterSO');
+            const bo = document.getElementById('filterBO');
+
+            if (changedIdx === 0) {
+                if (div === 'ALL') { disableFilters([sub, so, bo]); } 
+                else {
+                    enableFilter(sub);
+                    populateFilter('filterSub', [...new Set(rawData.filter(d => d.Division_Name === div).map(d => d.Subdivision_Name))]);
+                }
+            }
+            if (changedIdx <= 1) {
+                if (sub.value === 'ALL') { disableFilters([so, bo]); } 
+                else {
+                    enableFilter(so);
+                    populateFilter('filterSO', [...new Set(rawData.filter(d => d.Division_Name === div && d.Subdivision_Name === sub.value).map(d => d.SO_Name))]);
+                }
+            }
+            if (changedIdx <= 2) {
+                if (so.value === 'ALL') { disableFilters([bo]); } 
+                else {
+                    enableFilter(bo);
+                    populateFilter('filterBO', [...new Set(rawData.filter(d => d.Division_Name === div && d.Subdivision_Name === sub.value && d.SO_Name === so.value).map(d => d.BO_Name))]);
+                }
+            }
+        }
+
+        function disableFilters(elements) {
+            elements.forEach(el => { el.disabled = true; el.classList.add('opacity-50'); el.value = 'ALL'; });
+        }
+        function enableFilter(el) { el.disabled = false; el.classList.remove('opacity-50'); }
+
+        function renderKPIs() {
+            let data = rawData;
+            const div = document.getElementById('filterDiv').value;
+            const sub = document.getElementById('filterSub').value;
+            const so = document.getElementById('filterSO').value;
+            const bo = document.getElementById('filterBO').value;
+
+            if (div !== 'ALL') data = data.filter(d => d.Division_Name === div);
+            if (sub !== 'ALL' && !document.getElementById('filterSub').disabled) data = data.filter(d => d.Subdivision_Name === sub);
+            if (so !== 'ALL' && !document.getElementById('filterSO').disabled) data = data.filter(d => d.SO_Name === so);
+            if (bo !== 'ALL' && !document.getElementById('filterBO').disabled) data = data.filter(d => d.BO_Name === bo);
+
+            const workCols = ['POSB', 'SBPRM', 'Seeding_linkage', 'GI_Premium', 'PLI_RPLI_Premium', 'Mails_booking', 'Mails_booking_count', 'Connections', 'Milestone'];
+            const pendCols = ['POSB_Pending', 'SBPRM_Pending', 'Seeding_Linkage_Pending', 'GI_Premium_Pending', 'PLI_RPLI_Pending', 'Mails_booking_Pending', 'Mails_booking_count_Pending', 'Connections_Pending'];
+
+            renderGrid('gridWorkDone', workCols, data);
+            renderGrid('gridWorkPending', pendCols, data);
+        }
+
+        function renderGrid(containerId, cols, data) {
+            const container = document.getElementById(containerId);
+            container.innerHTML = '';
+            cols.forEach(col => {
+                let val;
+                let formattedVal;
+                if (col === 'Milestone') {
+                    const u = [...new Set(data.map(d => d[col]))];
+                    formattedVal = u.length === 1 ? u[0] : (u.length > 1 ? 'Multiple' : 'N/A');
+                } else {
+                    val = data.reduce((s, r) => s + (parseFloat(r[col]) || 0), 0);
+                    val = Number.isInteger(val) ? val : val.toFixed(2);
+                    formattedVal = formatIndian(val);
+                }
+                
+                container.innerHTML += `
+                    <div class="glass p-3 md:p-4 kpi-card flex flex-col items-center justify-center text-center ${isDarkMode ? 'neon-border-dark' : 'neon-border-light'}">
+                        <span class="text-[9px] md:text-[10px] uppercase font-bold opacity-60 mb-1 leading-tight">${col.replace(/_/g, ' ')}</span>
+                        <span class="text-base md:text-lg font-bold truncate w-full">${formattedVal}</span>
+                    </div>`;
+            });
+        }
+
+        const getStatus = (row) => {
+            const m = String(row.Milestone || '').toLowerCase();
+            if (m.includes('dormant')) return 'dormant';
+            if (m.includes('oop')) return 'oop';
+            if (m.includes('potential')) return 'potential';
+            if (m.includes('sahastraveer')) return 'sahastra';
+            return 'dormant';
+        };
+
+        function calculateMetrics(data) {
+            const m = { dormant: 0, oop: 0, potential: 0, sahastra: 0, total: 0 };
+            data.forEach(r => {
+                m[getStatus(r)]++;
+                m.total++;
+            });
+            m.netPctVal = m.total ? ((m.oop + m.potential + m.sahastra) / m.total) * 100 : 0;
+            m.sahPctVal = m.total ? (m.sahastra / m.total) * 100 : 0;
+            m.netPct = m.netPctVal.toFixed(1);
+            m.sahPct = m.sahPctVal.toFixed(1);
+            return m;
+        }
+
+        function renderTable() {
+            const body = document.getElementById('tableBody');
+            body.innerHTML = '';
+            
+            let totalDormant = 0, totalOop = 0, totalPot = 0, totalSah = 0, totalSum = 0;
+
+            if (!isSubdivisionView) {
+                const divNames = [...new Set(rawData.map(d => d.Division_Name))];
+                const list = divNames.map(name => ({ name, data: rawData.filter(d => d.Division_Name === name) }))
+                    .map(item => ({ ...item, metrics: calculateMetrics(item.data) }));
+
+                list.sort((a, b) => b.metrics.sahPctVal - a.metrics.sahPctVal || b.metrics.netPctVal - a.metrics.netPctVal);
+
+                list.forEach((item, index) => {
+                    const m = item.metrics;
+                    totalDormant += m.dormant; totalOop += m.oop; totalPot += m.potential; totalSah += m.sahastra; totalSum += m.total;
+                    addTableRow(body, index + 1, item.name, m, 0, 'div', item.name);
+
+                    if (expandedItems.has(item.name)) {
+                        const subs = [...new Set(item.data.map(d => d.Subdivision_Name))];
+                        const subList = subs.map(sName => ({ name: sName, data: item.data.filter(d => d.Subdivision_Name === sName) }))
+                            .map(si => ({ ...si, metrics: calculateMetrics(si.data) }));
+                        subList.sort((a, b) => b.metrics.sahPctVal - a.metrics.sahPctVal || b.metrics.netPctVal - a.metrics.netPctVal);
+
+                        subList.forEach((si, siIndex) => {
+                            const id = `${item.name}|${si.name}`;
+                            addTableRow(body, siIndex + 1, si.name, si.metrics, 1, 'sub', id);
+                            if (expandedItems.has(id)) {
+                                const sos = [...new Set(si.data.map(d => d.SO_Name))].sort();
+                                sos.forEach(soName => {
+                                    const soData = si.data.filter(d => d.SO_Name === soName);
+                                    addTableRow(body, "-", soName, calculateMetrics(soData), 2, 'so', `${id}|${soName}`);
+                                });
+                            }
+                        });
+                    }
+                });
+            } else {
+                const subKeys = [...new Set(rawData.map(d => `${d.Division_Name}|${d.Subdivision_Name}`))];
+                const list = subKeys.map(key => {
+                    const [div, sub] = key.split('|');
+                    return { div, sub, data: rawData.filter(d => d.Division_Name === div && d.Subdivision_Name === sub) };
+                }).map(item => ({ ...item, metrics: calculateMetrics(item.data) }));
+
+                list.sort((a, b) => b.metrics.sahPctVal - a.metrics.sahPctVal || b.metrics.netPctVal - a.metrics.netPctVal);
+
+                list.forEach((item, index) => {
+                    const m = item.metrics;
+                    totalDormant += m.dormant; totalOop += m.oop; totalPot += m.potential; totalSah += m.sahastra; totalSum += m.total;
+                    const id = `${item.div}|${item.sub}`;
+                    addTableRow(body, index + 1, `${item.sub} (${item.div})`, m, 0, 'sub', id);
+
+                    if (expandedItems.has(id)) {
+                        const sos = [...new Set(item.data.map(d => d.SO_Name))].sort();
+                        sos.forEach(soName => {
+                            const soData = item.data.filter(d => d.SO_Name === soName);
+                            addTableRow(body, "-", soName, calculateMetrics(soData), 2, 'so', `${id}|${soName}`);
+                        });
+                    }
+                });
+            }
+
+            const fNet = totalSum ? (((totalOop + totalPot + totalSah) / totalSum) * 100).toFixed(1) : "0.0";
+            const fSah = totalSum ? ((totalSah / totalSum) * 100).toFixed(1) : "0.0";
+            document.getElementById('tableFooter').innerHTML = `
+                <tr class="text-yellow-500 font-bold">
+                    <td class="p-4">-</td>
+                    <td class="p-4">TOTAL AGGREGATE</td>
+                    <td class="p-4 text-center">${formatIndian(totalDormant)}</td>
+                    <td class="p-4 text-center">${formatIndian(totalOop)}</td>
+                    <td class="p-4 text-center">${formatIndian(totalPot)}</td>
+                    <td class="p-4 text-center">${formatIndian(totalSah)}</td>
+                    <td class="p-4 text-center">${formatIndian(totalSum)}</td>
+                    <td class="p-4 text-center">${fNet}%</td>
+                    <td class="p-4 text-center">${fSah}%</td>
+                </tr>`;
+        }
+
+        function addTableRow(parent, rank, name, m, level, type, id) {
+            const tr = document.createElement('tr');
+            const isExp = expandedItems.has(id);
+            tr.className = `border-b border-white/5 expandable ${type === 'sub' ? 'child-row-sub' : type === 'so' ? 'child-row-so' : ''} ${isExp ? 'expanded' : ''}`;
+            
+            const icon = level < 2 ? `<i class="fa-solid fa-chevron-right chevron mr-2 text-[10px] opacity-50"></i>` : `<i class="fa-solid fa-circle text-[6px] mr-2 opacity-30"></i>`;
+            const indent = level * 20;
+
+            const rankDisplay = (typeof rank === 'number' && rank <= 10) ? `<span class="rank-badge">${rank}</span>` : rank;
+
+            tr.innerHTML = `
+                <td class="p-4 text-center">${rankDisplay}</td>
+                <td class="p-4 font-medium" style="padding-left: ${indent + 16}px" onclick="toggleExpand('${id}', event)">
+                    ${icon}<span class="text-blue-400 hover:underline cursor-pointer">${name}</span>
+                </td>
+                <td class="p-4 text-center clickable-cell" onclick="exportData('${id}', 'dormant', event)">${formatIndian(m.dormant)}</td>
+                <td class="p-4 text-center clickable-cell" onclick="exportData('${id}', 'oop', event)">${formatIndian(m.oop)}</td>
+                <td class="p-4 text-center clickable-cell" onclick="exportData('${id}', 'potential', event)">${formatIndian(m.potential)}</td>
+                <td class="p-4 text-center clickable-cell" onclick="exportData('${id}', 'sahastra', event)">${formatIndian(m.sahastra)}</td>
+                <td class="p-4 text-center font-bold">${formatIndian(m.total)}</td>
+                <td class="p-4 text-center">${m.netPct}%</td>
+                <td class="p-4 text-center">${m.sahPct}%</td>
+            `;
+            parent.appendChild(tr);
+        }
+
+        function toggleExpand(id, e) {
+            e.stopPropagation();
+            if (expandedItems.has(id)) expandedItems.delete(id);
+            else expandedItems.add(id);
+            renderTable();
+        }
+
+        function exportData(id, status, e) {
+            e.stopPropagation();
+            const parts = id.split('|');
+            let data = rawData;
+            
+            // Filter by context
+            if (parts[0]) data = data.filter(d => d.Division_Name === parts[0]);
+            if (parts[1]) data = data.filter(d => d.Subdivision_Name === parts[1]);
+            if (parts[2]) data = data.filter(d => d.SO_Name === parts[2]);
+
+            // Filter by Milestone status
+            if (status !== 'total') {
+                data = data.filter(r => getStatus(r) === status);
+            }
+
+            if (data.length === 0) {
+                // No need for alert, just return
+                return;
+            }
+
+            const ws = XLSX.utils.json_to_sheet(data);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, "Filtered_Data");
+            XLSX.writeFile(wb, `Export_${status}_${id.replace(/\|/g, '_')}.xlsx`);
+        }
+
+        function exportTableToExcel() {
+            const table = document.getElementById('drilldownTable');
+            const wb = XLSX.utils.table_to_book(table);
+            XLSX.writeFile(wb, `Sahastraveer_Full_Report.xlsx`);
+        }
+    </script>
+</body>
+</html>
